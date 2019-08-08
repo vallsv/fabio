@@ -38,11 +38,13 @@
 
 # modifications by Jon Wright for style, pychecker and fabio
 #
+# Get ready for python3:
+from __future__ import with_statement, print_function, division
 
 __authors__ = ["Antonino Miceli", "Jon Wright", "Jérôme Kieffer"]
-__date__ = "03/04/2020"
+__date__ = "14/11/2018"
 __status__ = "production"
-__copyright__ = "2007 APS; 2010-2020 ESRF"
+__copyright__ = "2007 APS; 2010-2015 ESRF"
 __licence__ = "MIT"
 
 import os
@@ -209,7 +211,8 @@ GE_HEADER_INFO = [
     ('NumberOfColumns128', 2, '<H'),
     ('NumberOfRows128', 2, '<H'),
     ('VFPAquisition', 2000, None),
-    ('Comment', 200, None)]
+    ('Comment', 200, None)
+    ]
 
 
 class GeImage(FabioImage):
@@ -221,29 +224,34 @@ class GeImage(FabioImage):
     _need_a_seek_to_read = True
 
     _HeaderNBytes = 8192
+    _UserHeaderSizeInBytes = 0
     _NumberOfRowsInFrame = 2048
     _NumberOfColsInFrame = 2048
     _ImageDepthInBytes = 2
+    _ImageDepthInBits = 8 * _ImageDepthInBytes
     _BytesPerFrame = _ImageDepthInBytes \
         * _NumberOfRowsInFrame \
         * _NumberOfRowsInFrame
 
     def _readheader(self, infile):
         """Read a GE image header"""
-
+        aps_img_format = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+        
         infile.seek(0)
-
         self.header = self.check_header()
-        self.header['StandardHeaderSizeInBytes'] = self._HeaderNBytes
-        self.header['UserHeaderSizeInBytes'] = 0
-        self.header['NumberOfRowsInFrame'] = 2048
-        self.header['NumberOfColsInFrame'] = 2048
-        self.header['ImageDepthInBits'] = 16
-        # obsolete for now # for name, nbytes, fmt in GE_HEADER_INFO:
-        # obsolete for now #     if fmt is None:
-        # obsolete for now #         self.header[name] = infile.read(nbytes)
-        # obsolete for now #     else:
-        # obsolete for now #         self.header[name] = struct.unpack(fmt, infile.read(nbytes))[0]
+        for name, nbytes, fmt in GE_HEADER_INFO:
+            if fmt is None:
+                self.header[name] = infile.read(nbytes)
+            else:
+                self.header[name] = struct.unpack(fmt, infile.read(nbytes))[0]
+        if self.header["ImageFormat"] == aps_img_format:
+            # FIXME for now have to assume we have a bastardized GE file from
+            # Argonne, where they blanked the header with all zeros
+            self.header['StandardHeaderSizeInBytes'] = self._HeaderNBytes
+            self.header['UserHeaderSizeInBytes'] = self._UserHeaderSizeInBytes
+            self.header['NumberOfRowsInFrame'] = self._NumberOfRowsInFrame
+            self.header['NumberOfColsInFrame'] = self._NumberOfColsInFrame
+            self.header['ImageDepthInBits'] = self._ImageDepthInBits            
 
     def read(self, fname, frame=None):
         """
@@ -257,11 +265,12 @@ class GeImage(FabioImage):
         infile = self._open(fname, "rb")
         self.sequencefilename = fname
         self._readheader(infile)
-        # obsolete for now # self._nframes = self.header['NumberOfFrames']
+
+        # obsolete for now # self.nframes = self.header['NumberOfFrames']
         file_size = os.stat(fname).st_size
         assert numpy.remainder(file_size, self._BytesPerFrame) == self._HeaderNBytes, \
             "file is incorrect size"
-        self._nframes = file_size//self._BytesPerFrame
+        self.nframes = file_size//self._BytesPerFrame
         self._readframe(infile, frame)
         infile.close()
         return self
